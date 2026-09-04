@@ -1,0 +1,12 @@
+# UE 标准忽略（如日后扩展为完整工程）
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Content/
+*.sln
+*.suo
+*.VC.db
+*.opensdf
+*.xcodeproj
+.DS_Store
