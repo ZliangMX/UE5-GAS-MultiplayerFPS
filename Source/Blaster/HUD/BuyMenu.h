@@ -54,6 +54,21 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Buy")
 	TSubclassOf<AWeapon> ShotgunClass;
 
+	// --- 护甲两档（可选控件：WBP_BuyMenu 里没放就不显示，不影响武器那几个按钮）---
+	// 加两个 UButton（LightArmorButton / HeavyArmorButton）和两个 UTextBlock
+	// （LightArmorCostText / HeavyArmorCostText）即可，名字要和这里完全一致。
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* LightArmorButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* LightArmorCostText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* HeavyArmorButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* HeavyArmorCostText;
+
 	UPROPERTY(meta = (BindWidgetOptional))
 	UButton* CloseButton;
 
@@ -64,6 +79,12 @@ protected:
 private:
 	UFUNCTION()
 	void OnRifleClicked();
+
+	UFUNCTION()
+	void OnLightArmorClicked();
+
+	UFUNCTION()
+	void OnHeavyArmorClicked();
 
 	UFUNCTION()
 	void OnPistolClicked();
@@ -78,6 +99,9 @@ private:
 	void OnCloseClicked();
 
 	void RequestBuy(TSubclassOf<AWeapon> WeaponClass);
+	// 护甲走另一条（不是武器，没有 AWeapon 类可传）：只报「买哪一档」+ 显示用价格
+	void RequestBuyArmor(int32 ArmorAmount);
+	void RefreshArmorCostText(UTextBlock* Text, int32 Cost);
 	void RefreshCredits();
 	void RefreshCostText(UTextBlock* Text, TSubclassOf<AWeapon> WeaponClass);
 };

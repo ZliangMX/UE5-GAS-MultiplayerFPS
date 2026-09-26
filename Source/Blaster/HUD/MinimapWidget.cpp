@@ -22,6 +22,9 @@ void UMinimapWidget::NativeConstruct()
 	EnemyArrowTexture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/Minimap/Icons/enemy_arrow"));
 	DeadMarkerTexture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/Minimap/Icons/dead_marker"));
 	SpikeTexture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/Minimap/Icons/spike"));
+
+	// 底图（俯拍截图中央正方形）；未导入/加载失败时为 nullptr，NativePaint 退纯色占位
+	BackgroundTexture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/Minimap/BG_Minimap"));
 }
 
 void UMinimapWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -31,7 +34,7 @@ void UMinimapWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	// 纯自绘 widget：默认不会每帧重绘，必须手动强制（数据每帧都在变）
 	Invalidate(EInvalidateWidgetReason::Paint);
 
-	// AddToViewport 默认占满全屏：按地图尺寸固定一次 widget 尺寸并贴左上角
+	// AddToViewport 默认占满全屏：按地图尺寸固定一次 widget 尺寸并摆到左上角（往下让一点）
 	ApplyViewportSize();
 }
 
@@ -46,7 +49,8 @@ void UMinimapWidget::ApplyViewportSize()
 	if (Size <= 0.f) return;
 
 	SetDesiredSizeInViewport(FVector2D(Size, Size));
-	SetPositionInViewport(FVector2D(0.f, 0.f));
+	// X 贴左边，Y 往下让 MinimapTopOffset（地图实际左上角 = (MinimapCornerMargin, MinimapTopOffset + MinimapCornerMargin)）
+	SetPositionInViewport(FVector2D(0.f, MinimapTopOffset));
 	bViewportSized = true;
 }
 
@@ -199,13 +203,28 @@ int32 UMinimapWidget::NativePaint(const FPaintArgs& Args, const FGeometry& Allot
 	const float DeadIconSize = 22.f;
 	const float SpikeIconSize = 18.f;
 
-	// 背景（半透明深色）+ 边框
+	// 底图：有底图就铺整张地图（轻微压暗提对比），否则退回纯色占位
 	const FSlateBrush WhiteBrush = MakeBrush(GEngine ? GEngine->DefaultTexture : nullptr);
-	DrawBox(OutDrawElements, LayerId, AllottedGeometry, WhiteBrush, FVector2D(Margin, Margin), FVector2D(Size, Size), FLinearColor(0.05f, 0.07f, 0.10f, 0.82f));
-	DrawLine(OutDrawElements, LayerId, AllottedGeometry, FVector2D(Margin, Margin), FVector2D(Margin + Size, Margin), FLinearColor(1.f, 1.f, 1.f, 0.35f), 1.f);
-	DrawLine(OutDrawElements, LayerId, AllottedGeometry, FVector2D(Margin, Margin), FVector2D(Margin, Margin + Size), FLinearColor(1.f, 1.f, 1.f, 0.35f), 1.f);
-	DrawLine(OutDrawElements, LayerId, AllottedGeometry, FVector2D(Margin + Size, Margin), FVector2D(Margin + Size, Margin + Size), FLinearColor(1.f, 1.f, 1.f, 0.35f), 1.f);
-	DrawLine(OutDrawElements, LayerId, AllottedGeometry, FVector2D(Margin, Margin + Size), FVector2D(Margin + Size, Margin + Size), FLinearColor(1.f, 1.f, 1.f, 0.35f), 1.f);
+	const FVector2D MapRect(Margin, Margin);
+	const FVector2D MapSize(Size, Size);
+	if (BackgroundTexture)
+	{
+		const FSlateBrush BGBrush = MakeBrush(BackgroundTexture);
+		DrawBox(OutDrawElements, LayerId, AllottedGeometry, BGBrush, MapRect, MapSize, FLinearColor::White);
+		// 半透明黑罩：压暗地图让白色队友点/自己箭头/敌人箭头更醒目。
+		// ★ 必须用**底图自己**当笔刷（而不是纯白 1x1）—— Slate 的 tint 是相乘的，
+		//   即 Color * 贴图RGBA：于是黑罩只会出现在底图不透明的地方，
+		//   抠掉黑色的透明区仍然全透，不会在游戏画面上糊出一个方方正正的暗斑。
+		DrawBox(OutDrawElements, LayerId, AllottedGeometry, BGBrush, MapRect, MapSize, FLinearColor(0.f, 0.f, 0.f, 0.10f));
+	}
+	else
+	{
+		DrawBox(OutDrawElements, LayerId, AllottedGeometry, WhiteBrush, MapRect, MapSize, FLinearColor(0.05f, 0.07f, 0.10f, 0.82f));
+	}
+
+	// 原来这里还有一圈贴着正方形四边描的白框（每边 alpha 0.35）。底图换成抠掉黑背景的
+	// Lotus 图之后，地图轮廓本身就是不规则形状、四角是透明的 —— 再描这个方框等于在空中
+	// 画一个空框，所以去掉了。地图自己的白色描边已经够把边界说清楚。
 
 	// 安装区：轮廓 + 半透明填充（画在图标底层）
 	for (const TArray<FVector>& Corners : MinimapComp->GetPlantZoneOutlines())

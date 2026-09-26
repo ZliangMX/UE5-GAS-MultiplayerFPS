@@ -67,6 +67,16 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> SpikeTexture;
 
+	// 小地图底图（俯拍截图中央正方形，NativePaint 最底层铺满整块地图；未加载时退回纯色占位）
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BackgroundTexture;
+
 	// 小地图外缘留白（像素）
 	float MinimapCornerMargin = 12.f;
+
+	// 小地图整体往下挪多少（像素）。X 位置由 MinimapCornerMargin 贴左边，
+	// Y 单独拎出来是因为实跑发现贴屏幕最上沿太挤（顶部 HUD 也在上方）。
+	// 整个 widget 的左上角 = (0, MinimapTopOffset)，地图本身再往内缩 MinimapCornerMargin。
+	UPROPERTY(EditDefaultsOnly, Category = "Minimap")
+	float MinimapTopOffset = 100.f;
 };

@@ -2,8 +2,6 @@
 
 
 #include "ShotGun.h"
-#include "Engine/SkeletalMeshSocket.h"
-#include "Engine/SkeletalMeshSocket.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "FramePro/FramePro.h"
@@ -18,11 +16,11 @@ void AShotGun::Fire(const FVector& HitTarget)
 	if (OwnerPawn == nullptr) return;
 	AController* InstigatorController = OwnerPawn->GetController();
 	
-	const USkeletalMeshSocket* MuzzleSocket = GetWeaponMesh()->GetSocketByName(MuzzleFlashSocket);
-	if (MuzzleSocket && InstigatorController)
+	if (InstigatorController)
 	{
-		FTransform SocketTransform = MuzzleSocket->GetSocketTransform(GetWeaponMesh());
-		FVector Start = SocketTransform.GetLocation();
+		// 起点和单发武器走同一个入口（本机=第一人称眼位，其他机器=看得见的枪口）。
+		// 所有钢珠都从这个点散出去 —— 和准星那条射线共起点，近距离才不会整片打偏。
+		const FVector Start = GetShotOrigin();
 		uint32 Hits = 0;
 
 		TMap<ABlasterCharacter*, uint32> HitMap;
@@ -48,7 +46,20 @@ void AShotGun::Fire(const FVector& HitTarget)
 				HeadshotMap.Emplace(BlasterCharacter, HeadshotMap.FindRef(BlasterCharacter) || IsHeadshot(FireHit));
 			}
 
-			if (ImpactParticles)
+			/*
+			 * 弹道轨迹 + 弹孔：**每颗钢珠各来一份**。
+			 *
+			 * 和单发武器不同，这里故意不合并成一条 —— 霰弹本来就是八颗钢珠散着飞出去的，
+			 * 画成一片扇形轨迹才是它该有的样子（也是各家 FPS 的通行做法）。
+			 * 代价是每一枪最多 8 个贴花，所以 ImpactDecalLifeSpan 别设太大。
+			 *
+			 * 两个 Spawn 内部自己判断"没打中就不放"，所以这里不用再套 bBlockingHit。
+			 */
+			SpawnTracerFX(Start, HitTarget, FireHit);
+			SpawnImpactDecal(FireHit);
+
+			// ★ 同上：打空那颗钢珠的 ImpactPoint 是零向量，不判的话特效会跑到世界原点去。
+			if (FireHit.bBlockingHit && ImpactParticles)
 			{
 				UGameplayStatics::SpawnEmitterAtLocation(
 					GetWorld(),
@@ -57,7 +68,7 @@ void AShotGun::Fire(const FVector& HitTarget)
 					FireHit.ImpactNormal.Rotation()
 				);
 			}
-			if (HitSound)
+			if (FireHit.bBlockingHit && HitSound)
 			{
 				UGameplayStatics::PlaySoundAtLocation(
 					this,
@@ -90,11 +101,11 @@ void AShotGun::Fire(const FVector& HitTarget)
 						const bool bHeadshot = HeadshotMap.FindRef(HitPair.Key);
 						if (KillerPC->IsLocalController())
 						{
-							KillerPC->PlayKillSound(bHeadshot);
+							KillerPC->PlayKillSound(bHeadshot, KillIconSet, ComputeThisKillIndex(InstigatorController));
 						}
 						else
 						{
-							KillerPC->ClientPlayKillSound(bHeadshot);
+							KillerPC->ClientPlayKillSound(bHeadshot, KillIconSet, ComputeThisKillIndex(InstigatorController));
 						}
 					}
 				}

@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "FbxPipeline",
+	"Description": "FBX 批量导入 + 资产命名校验编辑器工具集。命名规则数据化、逻辑可单测，导入走临时目录→校验→改名移入的安全链路。",
+	"Category": "Import",
+	"CreatedBy": "PingLiangYe",
+	"CreatedByURL": "https://github.com/ZliangMX",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "FbxPipeline",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

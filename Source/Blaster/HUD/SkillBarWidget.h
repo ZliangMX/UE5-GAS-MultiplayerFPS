@@ -29,8 +29,10 @@ private:
 	// 从 ASC 收集所有要显示在技能条上的技能（bShowInSkillBar 过滤 + 按 SkillSlotIndex 排序）
 	void CollectVisibleSkills(const UAbilitySystemComponent* ASC, TArray<UBlasterGameplayAbility*>& OutSkills) const;
 
-	// 按技能类型画矢量图标（SlotCenter 为图标框中心，IconHalf 为半边长）
-	void DrawSkillIcon(FSlateWindowElementList& OutDrawElements, int32& LayerId, const FGeometry& Geometry, const FVector2D& SlotCenter, float IconHalf, EBlasterSkillType SkillType) const;
+	// 画技能图标。Icon 有效就画贴图（按图标框等比缩放居中），否则按 SkillType 画矢量兜底形状。
+	// SlotCenter 为图标框中心，IconHalf 为半边长；bDimmed = 没充能 → 整张图按 42% 透明度画灰
+	//（素材里 _gray 那一版就是这个 42%，所以只需要一张白图，不用再导一份灰的）。
+	void DrawSkillIcon(FSlateWindowElementList& OutDrawElements, int32& LayerId, const FGeometry& Geometry, const FVector2D& SlotCenter, float IconHalf, EBlasterSkillType SkillType, UTexture2D* Icon, bool bDimmed) const;
 
 	// --- 绘制辅助（widget 局部坐标；LayerId 递增保证后画的在上层）---
 	static FSlateBrush MakeBrush(UTexture2D* Texture);

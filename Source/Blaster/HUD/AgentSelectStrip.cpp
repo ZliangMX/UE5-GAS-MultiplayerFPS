@@ -84,6 +84,9 @@ void UAgentSelectStrip::BuildTree()
 		case EBlasterAgent::Phoenix:
 			Btn->OnClicked.AddDynamic(this, &UAgentSelectStrip::HandlePhoenixClicked);
 			break;
+		case EBlasterAgent::Clove:
+			Btn->OnClicked.AddDynamic(this, &UAgentSelectStrip::HandleCloveClicked);
+			break;
 		case EBlasterAgent::None:
 		default:
 			Btn->OnClicked.AddDynamic(this, &UAgentSelectStrip::HandleRandomClicked);
@@ -141,6 +144,11 @@ void UAgentSelectStrip::HandleSageClicked()
 void UAgentSelectStrip::HandlePhoenixClicked()
 {
 	RequestSelect(EBlasterAgent::Phoenix);
+}
+
+void UAgentSelectStrip::HandleCloveClicked()
+{
+	RequestSelect(EBlasterAgent::Clove);
 }
 
 void UAgentSelectStrip::HandleRandomClicked()

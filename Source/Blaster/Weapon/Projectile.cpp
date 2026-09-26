@@ -52,6 +52,38 @@ void AProjectile::BeginPlay()
 		);
 
 	}
+	/*
+	 * 别撞到射手自己（以及射手身上挂着的武器）。
+	 *
+	 * 子弹从枪口出膛，生成点天然在身体外面，所以以前没暴露过这个问题。
+	 * 但"从手里出去"的投射物（Jett 飞刀）生成点就落在射手自己的骨骼网格里 ——
+	 * CollisionBox 明确 Block 了 ECC_SkeletalMesh，于是第一帧扫描就命中自己，
+	 * 伤害记在射手头上。表现就是"扔刀把自己扔死了"。
+	 *
+	 * 关掉的是**移动扫描**里对 Owner 的判定（ProjectileMovementComponent 走的正是
+	 * 带扫描的移动，会读这张 MoveIgnoreActors 表），所以投射物会直接穿过射手飞出去，
+	 * 而不是停在他身体里 —— 比"命中自己后判断成无效再销毁"要好，后者刀会当场消失。
+	 *
+	 * 注意这里关的是投射物对**射手**的判定，不影响射手以外任何人。
+	 */
+	if (AActor* MyOwner = GetOwner())
+	{
+		CollisionBox->IgnoreActorWhenMoving(MyOwner, true);
+
+		// 挂在他身上的东西：手里的枪、收在挂点上的枪、爆能器……
+		// （武器网格本身在 AWeapon 构造里就是 NoCollision，这里是兜底，
+		//   免得以后哪个模型改回可碰撞又冒出"我的枪挡住了我的刀"）
+		TArray<AActor*> AttachedToOwner;
+		MyOwner->GetAttachedActors(AttachedToOwner, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
+		for (AActor* Attached : AttachedToOwner)
+		{
+			if (Attached)
+			{
+				CollisionBox->IgnoreActorWhenMoving(Attached, true);
+			}
+		}
+	}
+
 	if (HasAuthority())
 	{
 		CollisionBox->OnComponentHit.AddDynamic(this,&AProjectile::OnHit);

@@ -4,6 +4,9 @@
 #include "BlasterHUD.h"
 #include "MinimapWidget.h"
 #include "SkillBarWidget.h"
+#include "ValorantBottomHUD.h"
+#include "ValorantTopHUD.h"
+#include "ValorantAnnouncement.h"
 #include "WindEffectWidget.h"
 #include "FlashEffectWidget.h"
 #include "GameFramework/PlayerController.h"
@@ -17,6 +20,7 @@
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/BlasterTypes/Team.h"
+#include "Blaster/Weapon/WeaponKillIconSet.h"
 #include "Blaster/GameState/BlasterGameState.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
@@ -39,6 +43,9 @@ void ABlasterHUD::AddMinimapWidget()
 
 void ABlasterHUD::AddSkillBarWidget()
 {
+	// 底栏已经有 Jett 的 C/Q/E/X 技能条了，这套通用的不再创建（见 bValorantHUDOnly）
+	if (bValorantHUDOnly) return;
+
 	APlayerController* PC = GetOwningPlayerController();
 	if (!PC || !PC->IsLocalController() || SkillBarWidget) return;
 
@@ -48,6 +55,40 @@ void ABlasterHUD::AddSkillBarWidget()
 	if (SkillBarWidget)
 	{
 		SkillBarWidget->AddToViewport();
+	}
+}
+
+void ABlasterHUD::AddValorantHUDWidget()
+{
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC || !PC->IsLocalController() || ValorantHUD) return;
+
+	// 挂了 WBP_ValorantBottomHUD 就用蓝图类（里面有烤好的版面，能在设计器里微调）；
+	// 没挂退回纯 C++ 类 —— 那条路在 RebuildWidget 里现建同一张版面表，画出来一样。
+	const TSubclassOf<UValorantBottomHUD> WidgetClass = ValorantHUDClass
+		? ValorantHUDClass
+		: TSubclassOf<UValorantBottomHUD>(UValorantBottomHUD::StaticClass());
+	ValorantHUD = CreateWidget<UValorantBottomHUD>(PC, WidgetClass);
+	if (ValorantHUD)
+	{
+		ValorantHUD->AddToViewport();
+	}
+}
+
+void ABlasterHUD::AddValorantTopHUDWidget()
+{
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC || !PC->IsLocalController() || ValorantTopHUD) return;
+
+	// 同底部 HUD：挂了 WBP_ValorantTopHUD 就用蓝图类（版面烤在里面，能在设计器里微调），
+	// 没挂退回纯 C++ 类 —— 那条路在 RebuildWidget 里现建同一张版面表。
+	const TSubclassOf<UValorantTopHUD> WidgetClass = ValorantTopHUDClass
+		? ValorantTopHUDClass
+		: TSubclassOf<UValorantTopHUD>(UValorantTopHUD::StaticClass());
+	ValorantTopHUD = CreateWidget<UValorantTopHUD>(PC, WidgetClass);
+	if (ValorantTopHUD)
+	{
+		ValorantTopHUD->AddToViewport();
 	}
 }
 
@@ -80,6 +121,9 @@ void ABlasterHUD::AddFlashEffectWidget()
 
 void ABlasterHUD::AddCharacterOverlay()
 {
+	// 血甲弹和底栏完全重复，整块不建（见 bValorantHUDOnly 的注释：存活人数/安包进度条会一起没了）
+	if (bValorantHUDOnly) return;
+
 	APlayerController* PlayerController = GetOwningPlayerController();
 	if (PlayerController && CharacterOverlayClass)
 	{
@@ -103,17 +147,32 @@ void ABlasterHUD::AddCharacterOverlay()
 void ABlasterHUD::AddAnnouncement()
 {
 	APlayerController* PlayerController = GetOwningPlayerController();
-	if (PlayerController && AnnouncementClass && !Announcement)
-	{
-		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
-		Announcement->AddToViewport();
+	if (PlayerController == nullptr || Announcement != nullptr) return;
 
-		// Init new round result fields
-		if (Announcement->RoundResultText)
-			Announcement->RoundResultText->SetText(FText());
-		if (Announcement->TeamSwapText)
-			Announcement->TeamSwapText->SetText(FText());
+	// 用哪个类：开了 bValorantHUDOnly 就走我们自己那套（照用户给的 BUY PHASE 截图重绘的），
+	// 没配 ValorantAnnouncementClass 就退回 C++ 类本体；关掉开关则用原来那个 WBP。
+	// ★ 两者都是 UAnnouncement（UValorantAnnouncement 继承它），所以 PlayerController 里
+	//   那十几处 BlasterHUD->Announcement->XxxText->SetText(...) 一个字都不用改。
+	UClass* WidgetClass = nullptr;
+	if (bValorantHUDOnly)
+	{
+		WidgetClass = ValorantAnnouncementClass ? *ValorantAnnouncementClass : UValorantAnnouncement::StaticClass();
 	}
+	else
+	{
+		WidgetClass = AnnouncementClass;
+	}
+	if (WidgetClass == nullptr) return;
+
+	Announcement = CreateWidget<UAnnouncement>(PlayerController, WidgetClass);
+	if (Announcement == nullptr) return;
+	Announcement->AddToViewport();
+
+	// Init new round result fields
+	if (Announcement->RoundResultText)
+		Announcement->RoundResultText->SetText(FText());
+	if (Announcement->TeamSwapText)
+		Announcement->TeamSwapText->SetText(FText());
 }
 
 void ABlasterHUD::AddLobbyOverlay()
@@ -135,9 +194,74 @@ void ABlasterHUD::RemoveLobbyOverlay()
 	}
 }
 
+void ABlasterHUD::SetGameplayWidgetsCollapsed(bool bCollapsed)
+{
+	/*
+	 * 只碰**归 BlasterHUD 管、而且没有别人管**的那两个 widget：
+	 *
+	 *   · MinimapWidget  —— 它自己完全没判过 Lobby（UValorantBottomHUD/UValorantTopHUD 都判了，
+	 *     就它没判），大厅里会照常画一张地图，是"大厅还留着 HUD"的主因；
+	 *   · SkillBarWidget —— 原来在 DrawHUD 末尾每帧设一次，现在并到这里，一个地方管一件事。
+	 *
+	 * 不碰的：
+	 *   · 底栏 / 顶栏自己判 Lobby（它们还要按阵亡、有没有显示目标动态开关，这边再设就和它们抢）；
+	 *   · 风丝 / 被闪那两个是**触发驱动**的（武装逐风、吃到闪光才显示），大厅里根本没触发条件；
+	 *   · 公告（Announcement）是 PC 在比赛状态回调里建的，而 PC 在 Lobby 里 Tick 直接 return，
+	 *     压根不会走到那儿。
+	 *
+	 * 恢复用 SelfHitTestInvisible 而不是 Visible：这两个都是纯展示，不该吃掉鼠标/触摸
+	 * （底栏那边原来的写法也是这个值，保持一致）。
+	 */
+	const ESlateVisibility Visibility = bCollapsed
+		? ESlateVisibility::Collapsed
+		: ESlateVisibility::SelfHitTestInvisible;
+
+	if (MinimapWidget)
+	{
+		MinimapWidget->SetVisibility(Visibility);
+	}
+
+	if (SkillBarWidget)
+	{
+		SkillBarWidget->SetVisibility(Visibility);
+	}
+}
+
 void ABlasterHUD::DrawHUD()
 {
 	Super::DrawHUD();
+
+	/*
+	 * ——— Lobby（选人）地图：整套战斗 HUD 到这里为止 ———
+	 *
+	 * 用户 2026-09-24 的要求："lobby 的时候不用显示 hud"。
+	 *
+	 * 为什么断在**最前面**、而不是把几个 widget 收起来就完事：
+	 *   · 下面那些 widget（小地图 / 技能条 / 上下的 Valorant HUD / 风丝 / 被闪）全是**在这里懒创建**的
+	 *     （首帧各建一次），在这里断掉 = 大厅里**压根不会建出来**，而不是"建好了再藏"；
+	 *   · 准星、命中标记、漂浮伤害数字、受击方向、击杀信息、观战栏那些是**即时绘制**的
+	 *     （不在 widget 里），也只有在这里能一起断掉。
+	 *
+	 * ⚠️ 顶栏和底栏**不归这里管**：UValorantBottomHUD / UValorantTopHUD 自己在 NativeTick 里判
+	 *    Lobby 把自己收起（它们还要按存活/阵亡/有没有显示目标动态开关，这里再插一手就是抢）。
+	 *    （那两位注释里写着"BlasterHUD 那边也会 Collapse，这里双保险" —— 那是**旧说法**，
+	 *      这里既没有、也不该有那一下。真正归这里管的是下面 SetGameplayWidgetsCollapsed 里那两个。）
+	 *
+	 * ⚠️ 为什么除了"不建"还要再收一次已建出来的：PC 那边的 bInLobby 是 **Tick 里**按地图名判的
+	 *    （ABlasterPlayerController::LobbyPollInit），理论上首帧 DrawHUD 可能跑在它前面；
+	 *    而且这些 widget 是跨地图常驻的（只懒创建一次），上一局建出来的这会儿还在。
+	 */
+	ABlasterPlayerController* HudPC = Cast<ABlasterPlayerController>(GetOwningPlayerController());
+	const bool bInLobby = HudPC != nullptr && HudPC->IsInLobby();
+
+	if (bInLobby)
+	{
+		SetGameplayWidgetsCollapsed(true);
+		return;
+	}
+
+	// 回到对局地图恢复显示（跨地图常驻的那些 widget 要靠这一句回来）
+	SetGameplayWidgetsCollapsed(false);
 
 	// 击杀信息：懒绑定 GameState 的 KillFeed 多播（数据经 RPC 进来，只绑一次）
 	if (!bKillFeedBound)
@@ -161,6 +285,14 @@ void ABlasterHUD::DrawHUD()
 		const bool bSpectating = SpectateOwningPC && SpectateOwningPC->IsSpectating();
 
 		float SpreadScaled = CrosshairSpreadMax * HUDPackage.CrosshairSpread;
+
+		// 瞄准镜框：**先画**，压在准星底下 —— 它是叠上来的一层装饰，准星永远在最上面。
+		// 不隐藏普通准星：瞄准时准星照常显示（该变红还是变红），框只是加了个外圈。
+		// 颜色用框自己的（默认白），不跟 CrosshairsColor —— 见 FHUDPackage 里的注释。
+		if (!bSpectating && HUDPackage.AimTexture)
+		{
+			DrawCrosshair(HUDPackage.AimTexture,ViewportCenter,FVector2D(0.f,0.f),HUDPackage.AimTextureColor);
+		}
 
 		if (!bSpectating && HUDPackage.CrosshairCenter)
 		{
@@ -187,6 +319,8 @@ void ABlasterHUD::DrawHUD()
 			FVector2D Spread(0.f,SpreadScaled);
 			DrawCrosshair(HUDPackage.CrosshairBottom,ViewportCenter,Spread,HUDPackage.CrosshairsColor);
 		}
+
+		// （瞄准镜框在最上面画过了 —— 见上面"瞄准镜框"那一段）
 
 		// 射击反馈：命中标记 / 漂浮伤害数字 / 受击方向指示 / 击杀信息 / 击杀确认标记
 		DrawHitMarker(ViewportCenter);
@@ -217,6 +351,18 @@ void ABlasterHUD::DrawHUD()
 		AddSkillBarWidget();
 	}
 
+	// Valorant 底部 HUD（血/甲/弹 + Jett 技能条，首帧懒创建，之后自己每帧刷数值）
+	if (!ValorantHUD)
+	{
+		AddValorantHUDWidget();
+	}
+
+	// Valorant 顶部比分栏（左右队伍条 + 倒计时 + 回合数，首帧懒创建，之后自己每帧刷数值）
+	if (!ValorantTopHUD)
+	{
+		AddValorantTopHUDWidget();
+	}
+
 	// 视角风特效（技能武装逐风时全屏风丝，首帧懒创建，武装时自动显示）
 	if (!WindEffectWidget)
 	{
@@ -229,14 +375,11 @@ void ABlasterHUD::DrawHUD()
 		AddFlashEffectWidget();
 	}
 
-	// 技能条在 Lobby（选人）地图整块隐藏：widget 跨地图常驻（只懒创建一次），
-	// 回到对局地图时由实时地图名判断恢复显示。
-	if (SkillBarWidget)
-	{
-		ABlasterPlayerController* HudPC = Cast<ABlasterPlayerController>(GetOwningPlayerController());
-		const bool bLobby = HudPC && HudPC->IsInLobby();
-		SkillBarWidget->SetVisibility(bLobby ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
-	}
+	// 技能条的 Lobby 显隐已经提到函数开头（SetGameplayWidgetsCollapsed）——
+	// 那边是"在大厅直接 return"，不是每帧再设一遍可见性。
+
+	// Valorant 底栏的可见性自己管（UpdateDisplay 里判 Lobby / 阵亡 / 没有显示目标就自己收起）——
+	// 不在这里再插一手，免得两个地方抢着设可见性（widget 跨地图常驻，自己判最稳）。
 }
 
 // --- 射击反馈 ---
@@ -280,10 +423,12 @@ void ABlasterHUD::OnKillFeedEntry(const FString& KillerName, const FString& Vict
 	AddKillFeedEntry(KillerName, VictimName);
 }
 
-void ABlasterHUD::ShowKillMarker(int32 RoundKills)
+void ABlasterHUD::ShowKillMarker(int32 RoundKills, UWeaponKillIconSet* Icons)
 {
-	KillMarkerTier = FMath::Clamp(RoundKills, 1, 5);
+	KillMarkerTier = FMath::Clamp(RoundKills, 1, 6);
 	KillMarkerTime = GetWorld()->GetTimeSeconds();
+	// 图标在**触发这一刻**定下来（见头文件里那段注释）：之后换枪不影响这一段动画
+	KillMarkerIcons = Icons;
 }
 
 void ABlasterHUD::HideKillMarker()
@@ -318,8 +463,8 @@ void ABlasterHUD::DrawKillMarker(const FVector2D& ViewportSize)
 	}
 	Alpha = FMath::Clamp(Alpha, 0.f, 1.f);
 
-	// 屏幕中下方（距底边约 90px）
-	const FVector2D Center(ViewportSize.X * 0.5f, ViewportSize.Y - 90.f);
+	// 屏幕中下方：中心距底边 KillMarkerBottomOffset（调大 = 往上挪）
+	const FVector2D Center(ViewportSize.X * 0.5f, ViewportSize.Y - KillMarkerBottomOffset);
 	const float Size = 30.f * Scale;
 
 	FLinearColor Color;
@@ -332,6 +477,20 @@ void ABlasterHUD::DrawKillMarker(const FVector2D& ViewportSize)
 	default: Color = FLinearColor(1.f, 0.78f, 0.25f, Alpha); break;
 	}
 	const float Thickness = 3.f;
+
+	// 优先画武器上配的那张贴图；这把枪没配资产、或**这一档**留空，才回落到矢量造型。
+	// 贴图按 KillIconSize 当正方形居中画（跟着同一套弹出缩放），颜色/透明度由贴图自己带，
+	// 所以下面算出来的 Color 只在矢量那条路上用得到。
+	UTexture2D* Icon = KillMarkerIcons ? KillMarkerIcons->GetKillIcon(KillMarkerTier) : nullptr;
+	if (Icon)
+	{
+		const float IconSize = KillIconSize * Scale;
+		DrawTexture(Icon,
+			Center.X - IconSize * 0.5f, Center.Y - IconSize * 0.5f, IconSize, IconSize,
+			0.f, 0.f, 1.f, 1.f,
+			FLinearColor(1.f, 1.f, 1.f, Alpha), BLEND_Translucent);
+		return;
+	}
 
 	DrawKillMarkerShape(Center, Size, KillMarkerTier, Color, Thickness);
 }
@@ -444,10 +603,10 @@ void ABlasterHUD::DrawSageHealOverlay(const FVector2D& ViewportCenter)
 	ABlasterCharacter* Char = PC ? Cast<ABlasterCharacter>(PC->GetPawn()) : nullptr;
 	if (!Char) return;
 	const bool bHealSelect = Char->IsSageHealSelecting();
-	const bool bHoldFlash = Char->IsCurveballHolding();
-	if (!bHealSelect && !bHoldFlash) return;
+	const bool bHoldThrowable = Char->IsThrowableHolding();
+	if (!bHealSelect && !bHoldThrowable) return;
 
-	// 选中态/持闪光态准星：无枪械准星，画屏幕中央小十字；Sage 指向可治疗目标时变绿
+	// 选中态/手持投掷物态准星：无枪械准星，画屏幕中央小十字；Sage 指向可治疗目标时变绿
 	const ABlasterCharacter* Target = bHealSelect ? Char->GetSageHealTarget() : nullptr;
 	const FLinearColor CrossColor = Target
 		? FLinearColor(0.30f, 1.f, 0.50f, 1.f)

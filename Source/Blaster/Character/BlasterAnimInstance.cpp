@@ -36,7 +36,9 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 
 	bIsInAir = BlasterCharacter1->GetCharacterMovement()->IsFalling();
 	bIsAccelerating = BlasterCharacter1->GetCharacterMovement()->GetCurrentAcceleration().Size() > 0.f ? true : false;
-	bWeaponEquipped = BlasterCharacter1->IsWeaponEquipped();
+	// 手里拿着武器且没切出 spike 才算“持枪”。掏出 spike（bSpikeDrawn）时即使 EquippedWeapon
+	// 仍指向旧枪（客户端没等复制清空），也让动画机走空手机器。
+	bWeaponEquipped = BlasterCharacter1->IsWeaponEquipped() && !BlasterCharacter1->IsSpikeDrawn();
 	EquippedWeapon = BlasterCharacter1->GetEquippedWeapon();
 	bIsCrouched = BlasterCharacter1->bIsCrouched;
 	bAiming = BlasterCharacter1->IsAiming();

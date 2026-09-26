@@ -8,7 +8,7 @@
 class UButton;
 class UTextBlock;
 
-// Lobby 底部共用英雄条（Valorant 式）。四张卡：Jett / Sage / Phoenix / Random。
+// Lobby 底部共用英雄条（Valorant 式）。五张卡：Jett / Sage / Phoenix / Clove / Random。
 // 纯 C++ 自建 WidgetTree，由 ULobbyOverlay 挂进其根 Canvas 底部中央（随 overlay 一起进出）。
 // 数据源 = 本地玩家 PlayerState.Agent（复制），Overlay 每轮刷新把值推进来画高亮。
 UCLASS()
@@ -34,10 +34,17 @@ protected:
 	void HandlePhoenixClicked();
 
 	UFUNCTION()
+	void HandleCloveClicked();
+
+	UFUNCTION()
 	void HandleRandomClicked();
 
 private:
-	static constexpr int32 NumCards = 4;
+	// ⚠️ 这个数组**和 EBlasterAgent 没有任何自动联系** —— 加英雄时枚举改了这里不会跟着变，
+	//    漏改的表现是「新英雄在大厅里根本不出现」，不报错。改这里的同时必须同步
+	//    NumCards、CardAgents、下面 switch 里的点击绑定、以及 AgentSelectStrip.cpp 的
+	//    HandleXxxClicked 实现（四处，缺一不可）。
+	static constexpr int32 NumCards = 5;
 
 	void BuildTree();
 	void RequestSelect(EBlasterAgent Agent);
@@ -47,6 +54,7 @@ private:
 		EBlasterAgent::Jett,
 		EBlasterAgent::Sage,
 		EBlasterAgent::Phoenix,
+		EBlasterAgent::Clove,
 		EBlasterAgent::None   // None = "随机"
 	};
 

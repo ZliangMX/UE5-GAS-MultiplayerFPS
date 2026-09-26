@@ -51,26 +51,59 @@ void UMinimapComponent::OnRep_DeadMarkers() {}
 void UMinimapComponent::OnRep_SpikeMinimapData() {}
 
 // --- 地图坐标换算（固定地图） ---
+//
+// 世界厘米 → **屏幕**像素的换算率 = 世界→贴图像素 再乘显示缩放。
+// 拎成一个函数是为了 WorldToMap / MapToWorld / GetMapSizePx 三处永远一致 ——
+// 漏掉任何一处，画出来的图标和「点地图选点」就会各错各的。
+static FORCEINLINE float GetPPCPx(const float InPixelsPerCM, const float DisplayScale)
+{
+	return InPixelsPerCM * DisplayScale;
+}
+
 float UMinimapComponent::GetMapSizePx() const
 {
-	return 2.f * MapHalfSizeCm * PixelsPerCM;
+	// = 世界范围边长（按世界比例算是 2*Half*PixelsPerCM 贴图像素，正好等于贴图边长）
+	//   × 显示缩放 → 屏幕上画多大
+	return 2.f * MapHalfSizeCm * PixelsPerCM * MapDisplayScale;
 }
 
 FVector2D UMinimapComponent::WorldToMap(const FVector& WorldPos) const
 {
 	const float HalfPx = GetMapSizePx() * 0.5f;
+	const float PPC = GetPPCPx(PixelsPerCM, MapDisplayScale);
 
-	// 世界 +X → 地图右、+Y → 地图上（北朝上，翻转 Y）
+	// 世界 +X → 地图**上**（北）、+Y → 地图**右**。
+	// 像素 Y 轴朝下，所以 -X 那一项带负号 —— 世界 +X 变大 = 屏幕往上 = 像素 Y 变小。
+	// （MinimapWidget 里"自己箭头旋转 = 原始 Yaw"也依赖这条：yaw=0 朝 +X = 箭头朝上。）
 	FVector2D Offset(
-	(WorldPos.Y - MapOrigin.Y) * PixelsPerCM,
-		-(WorldPos.X - MapOrigin.X) * PixelsPerCM
-		
+	(WorldPos.Y - MapOrigin.Y) * PPC,
+		-(WorldPos.X - MapOrigin.X) * PPC
+
 	);
 
 	// 越界 clamp 到地图中心 ±HalfPx，再加 HalfPx 转成相对左上角
 	Offset.X = FMath::Clamp(Offset.X, -HalfPx, HalfPx);
 	Offset.Y = FMath::Clamp(Offset.Y, -HalfPx, HalfPx);
 	return Offset + FVector2D(HalfPx, HalfPx);
+}
+
+FVector UMinimapComponent::MapToWorld(const FVector2D& MapPos) const
+{
+	const float HalfPx = GetMapSizePx() * 0.5f;
+	const float PPC = GetPPCPx(PixelsPerCM, MapDisplayScale);
+
+	// 上面那四行的逆运算，逐项倒推：
+	//   Offset = MapPos - (HalfPx, HalfPx)
+	//   Offset.X = (W.Y - Origin.Y) * PPC   →  W.Y = Origin.Y + Offset.X / PPC
+	//   Offset.Y = -(W.X - Origin.X) * PPC  →  W.X = Origin.X - Offset.Y / PPC
+	const FVector2D Offset = MapPos - FVector2D(HalfPx, HalfPx);
+
+	// Z 用 MapOrigin.Z（地面）。封烟真正落到哪一层由服务器向下打射线决定，
+	// 这里返回的 Z 只是个起点，不代表最终高度。
+	return FVector(
+		MapOrigin.X - Offset.Y / PPC,
+		MapOrigin.Y + Offset.X / PPC,
+		MapOrigin.Z);
 }
 
 FVector UMinimapComponent::GetOwnLocation() const

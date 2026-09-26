@@ -43,11 +43,42 @@ public:
 	// 冲刺自然结束 / 撞墙停（能力绑定，用于 EndAbility 收尾）
 	FBlasterDashFinishedSignature OnBlasterDashFinished;
 
+	// —— 冲刺手感调参 ——
+	// 冲刺速度曲线（0~1）：冲刺内速度从峰值线性降到 本值×峰值。
+	//   1.0 = 全程匀速（改动前的老行为）
+	//   0.0 = 一路减到静止（最"软"的收尾）
+	//   0.1 = 末尾还剩一成（默认）
+	// ★ DashSpeed 的含义仍是"平均速度"：速度曲线首尾取平均后恒等于它，
+	//   所以调本值只改"起手多猛 / 结尾多软"，**不改变冲刺总距离**。
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blaster|Dash")
+	float DashEndSpeedScale = 0.1f;
+
+	// 冲刺期间是否接续起手那一刻的竖直速度（Q 腾空中按 E：水平交给冲刺，上升继续）。
+	// 只在"起手时人在空中"生效；站在地上（含斜坡）时 Velocity.Z 恒为 ~0，本项无影响。
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blaster|Dash")
+	bool bInheritVerticalVelocity = true;
+
+	// 冲刺结束时把"已经降下来"的残余速度交还给目标移动模式（走路/下落），
+	// 由 CMC 的刹车（BrakingDecelerationWalking）/重力自然收尾，而不是最后一帧硬清零。
+	// 关掉 = 回到"结尾一刀切停"。
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blaster|Dash")
+	bool bCarryExitVelocity = true;
+
 protected:
 	virtual void PhysCustom(float deltaTime, int32 Iterations) override;
 
 private:
+	// 冲刺收尾的统一出口：bCarryVelocity = 是否把残余速度交还给走路/下落
+	void FinishDash(bool bCarryVelocity);
+
 	FVector BlasterDashDirection = FVector::ZeroVector;
+	// 名义速度 = 平均速度（能力传进来的 DashSpeed），只用于推算峰值
 	float BlasterDashSpeed = 0.f;
 	float BlasterDashTimeRemaining = 0.f;
+	// 本次冲刺的总时长 / 起手峰值速度 / 当前这一帧的速度（退出时要用它做残余速度）
+	float BlasterDashTotalDuration = 0.f;
+	float BlasterDashPeakSpeed = 0.f;
+	float BlasterDashCurrentSpeed = 0.f;
+	// 冲刺期间接管的竖直速度（0 = 地面冲刺，本帧不做任何 Z 位移）
+	float BlasterDashVerticalVelocity = 0.f;
 };
